@@ -13,11 +13,6 @@
             background: lightblue;
         }
 
-        input, select {
-            padding: 10px;
-            margin: 10px;
-        }
-
         button {
             padding: 10px;
             margin: 10px;
@@ -30,19 +25,6 @@
         .mic-on {
             background: green !important;
         }
-
-        ul {
-            list-style: none;
-            padding: 0;
-        }
-
-        li {
-            background: white;
-            margin: 5px auto;
-            padding: 8px;
-            width: 220px;
-            border-radius: 8px;
-        }
     </style>
 </head>
 
@@ -52,22 +34,14 @@
 
 <input id="name" placeholder="Enter name"><br>
 
-<select id="team">
-    <option value="A">Team A</option>
-    <option value="B">Team B</option>
-</select><br>
-
 <button id="micBtn" onclick="enableMic()">🎤 Enable Mic</button><br>
 <button onclick="join()">Join</button>
 
 <p id="status"></p>
 
-<h3>👥 Players</h3>
-<ul id="playerList"></ul>
-
 <script>
 
-// 🔥 Firebase config
+// Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyCl0Xr_85Gjf3Lfzbs1uvx8eIPiFLTWT3c",
   authDomain: "voice-app-65f97.firebaseapp.com",
@@ -78,33 +52,27 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-// 🔥 WebRTC config
 const servers = {
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
 };
 
 let localStream;
 let myName;
-let peerConnections = {};
+let pc;
 
-// 🎤 ENABLE MIC
+// 🎤 MIC
 function enableMic() {
     navigator.mediaDevices.getUserMedia({ audio: true })
     .then(stream => {
         localStream = stream;
         document.getElementById("micBtn").innerText = "✅ Mic ON";
         document.getElementById("micBtn").classList.add("mic-on");
-        console.log("Mic ready 🎤");
-    })
-    .catch(() => {
-        alert("Allow microphone!");
     });
 }
 
 // 🎮 JOIN
 function join() {
     myName = document.getElementById("name").value;
-    let team = document.getElementById("team").value;
 
     if (!localStream) {
         alert("Enable mic first");
@@ -113,152 +81,97 @@ function join() {
 
     document.getElementById("status").innerText = "Joined";
 
-    db.ref("players/" + myName).set({
-        name: myName,
-        team: team
-    });
+    db.ref("users/" + myName).set(true);
 
-    listenPlayers();
-}
-
-// 👥 LISTEN PLAYERS
-function listenPlayers() {
-    db.ref("players").on("value", snap => {
-        let list = document.getElementById("playerList");
-        list.innerHTML = "";
-
-        snap.forEach(child => {
-            let player = child.val();
-
-            let li = document.createElement("li");
-            li.innerText = player.name + " (Team " + player.team + ")";
-            list.appendChild(li);
-
-            if (player.name !== myName && !peerConnections[player.name]) {
-                createConnection(player.name);
-            }
-        });
+    db.ref("users").once("value", snap => {
+        if (snap.numChildren() === 1) {
+            waitForCall(); // first user waits
+        } else {
+            startCall(); // second user starts call
+        }
     });
 }
 
-// 🔗 CREATE CONNECTION
-function createConnection(otherUser) {
+// 🔗 START CALL (only second user)
+function startCall() {
 
-    let pc = new RTCPeerConnection(servers);
+    pc = new RTCPeerConnection(servers);
 
     localStream.getTracks().forEach(track => {
         pc.addTrack(track, localStream);
     });
 
     pc.ontrack = e => {
-        console.log("Audio received 🔊");
-
         let audio = document.createElement("audio");
         audio.srcObject = e.streams[0];
-
         audio.autoplay = true;
-        audio.muted = false;
-        audio.volume = 1.0;
-
-        audio.play().then(() => {
-            console.log("Playing sound ✅");
-        }).catch(err => {
-            console.log("Autoplay blocked ❌", err);
-        });
-
+        audio.controls = true;
         document.body.appendChild(audio);
     };
 
-    pc.onicecandidate = event => {
-        if (event.candidate) {
-            db.ref("calls/" + myName + "_" + otherUser + "/candidates")
-            .push(event.candidate);
+    pc.onicecandidate = e => {
+        if (e.candidate) {
+            db.ref("signal/candidate").push(e.candidate);
         }
     };
 
-    peerConnections[otherUser] = pc;
-
-    pc.createOffer().then(offer => {
-        pc.setLocalDescription(offer);
-
-        db.ref("calls/" + myName + "_" + otherUser).set({
-            offer: offer
-        });
+    pc.createOffer().then(o => {
+        pc.setLocalDescription(o);
+        db.ref("signal/offer").set(o);
     });
 
-    db.ref("calls/" + otherUser + "_" + myName).on("value", snap => {
-        let data = snap.val();
-        if (data && data.answer) {
-            pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+    db.ref("signal/answer").on("value", snap => {
+        let ans = snap.val();
+        if (ans && pc.signalingState !== "stable") {
+            pc.setRemoteDescription(new RTCSessionDescription(ans));
         }
     });
 
-    db.ref("calls/" + otherUser + "_" + myName + "/candidates")
-    .on("child_added", snap => {
+    db.ref("signal/candidate").on("child_added", snap => {
         pc.addIceCandidate(new RTCIceCandidate(snap.val()));
     });
 }
 
-// 📡 ANSWER SIDE
-db.ref("calls").on("child_added", snap => {
+// 📡 WAIT + ANSWER (first user)
+function waitForCall() {
 
-    let key = snap.key;
-    let data = snap.val();
+    pc = new RTCPeerConnection(servers);
 
-    if (!myName) return;
+    localStream.getTracks().forEach(track => {
+        pc.addTrack(track, localStream);
+    });
 
-    if (key.includes("_" + myName) && data.offer) {
+    pc.ontrack = e => {
+        let audio = document.createElement("audio");
+        audio.srcObject = e.streams[0];
+        audio.autoplay = true;
+        audio.controls = true;
+        document.body.appendChild(audio);
+    };
 
-        let caller = key.split("_")[0];
+    pc.onicecandidate = e => {
+        if (e.candidate) {
+            db.ref("signal/candidate").push(e.candidate);
+        }
+    };
 
-        let pc = new RTCPeerConnection(servers);
+    db.ref("signal/offer").on("value", snap => {
+        let offer = snap.val();
 
-        localStream.getTracks().forEach(track => {
-            pc.addTrack(track, localStream);
-        });
+        if (offer && pc.signalingState === "stable") {
+            pc.setRemoteDescription(new RTCSessionDescription(offer));
 
-        pc.ontrack = e => {
-            console.log("Audio received 🔊");
-
-            let audio = document.createElement("audio");
-            audio.srcObject = e.streams[0];
-
-            audio.autoplay = true;
-            audio.muted = false;
-            audio.volume = 1.0;
-
-            audio.play().then(() => {
-                console.log("Playing sound ✅");
-            }).catch(err => {
-                console.log("Autoplay blocked ❌", err);
+            pc.createAnswer().then(ans => {
+                pc.setLocalDescription(ans);
+                db.ref("signal/answer").set(ans);
             });
+        }
+    });
 
-            document.body.appendChild(audio);
-        };
-
-        pc.onicecandidate = event => {
-            if (event.candidate) {
-                db.ref("calls/" + key + "/candidates")
-                .push(event.candidate);
-            }
-        };
-
-        pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-
-        pc.createAnswer().then(answer => {
-            pc.setLocalDescription(answer);
-
-            db.ref("calls/" + key).update({
-                answer: answer
-            });
-        });
-
-        db.ref("calls/" + key + "/candidates")
-        .on("child_added", snap => {
-            pc.addIceCandidate(new RTCIceCandidate(snap.val()));
-        });
-    }
-});
+    db.ref("signal/candidate").on("child_added", snap => {
+        pc.addIceCandidate(new RTCIceCandidate(snap.val()));
+    });
+}
 
 </script>
 

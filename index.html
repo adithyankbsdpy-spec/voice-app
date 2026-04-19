@@ -13,6 +13,11 @@
             background: lightblue;
         }
 
+        input, select {
+            padding: 10px;
+            margin: 10px;
+        }
+
         button {
             padding: 10px;
             margin: 10px;
@@ -25,6 +30,19 @@
         .mic-on {
             background: green !important;
         }
+
+        ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        li {
+            background: white;
+            margin: 5px auto;
+            padding: 8px;
+            width: 220px;
+            border-radius: 8px;
+        }
     </style>
 </head>
 
@@ -33,6 +51,7 @@
 <h1>🎮 Voice Chat</h1>
 
 <input id="name" placeholder="Enter name"><br>
+
 <select id="team">
     <option value="A">Team A</option>
     <option value="B">Team B</option>
@@ -42,6 +61,9 @@
 <button onclick="join()">Join</button>
 
 <p id="status"></p>
+
+<h3>👥 Players</h3>
+<ul id="playerList"></ul>
 
 <script>
 
@@ -56,11 +78,9 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-// 🔥 WebRTC config (IMPORTANT)
+// 🔥 WebRTC STUN
 const servers = {
-    iceServers: [
-        { urls: "stun:stun.l.google.com:19302" }
-    ]
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
 };
 
 let localStream;
@@ -74,26 +94,48 @@ function enableMic() {
         localStream = stream;
         document.getElementById("micBtn").innerText = "✅ Mic ON";
         document.getElementById("micBtn").classList.add("mic-on");
+        console.log("Mic ready 🎤");
+    })
+    .catch(() => {
+        alert("Allow microphone!");
     });
 }
 
 // 🎮 JOIN
 function join() {
     myName = document.getElementById("name").value;
+    let team = document.getElementById("team").value;
 
     if (!localStream) {
         alert("Enable mic first");
         return;
     }
 
-    db.ref("players/" + myName).set(true);
+    document.getElementById("status").innerText = "Joined";
 
+    db.ref("players/" + myName).set({
+        name: myName,
+        team: team
+    });
+
+    listenPlayers();
+}
+
+// 👥 PLAYER LIST
+function listenPlayers() {
     db.ref("players").on("value", snap => {
-        snap.forEach(child => {
-            let other = child.key;
+        let list = document.getElementById("playerList");
+        list.innerHTML = "";
 
-            if (other !== myName && !peerConnections[other]) {
-                createConnection(other);
+        snap.forEach(child => {
+            let player = child.val();
+
+            let li = document.createElement("li");
+            li.innerText = player.name + " (Team " + player.team + ")";
+            list.appendChild(li);
+
+            if (player.name !== myName && !peerConnections[player.name]) {
+                createConnection(player.name);
             }
         });
     });
@@ -109,9 +151,14 @@ function createConnection(otherUser) {
     });
 
     pc.ontrack = e => {
+        console.log("Audio received 🔊");
+
         let audio = document.createElement("audio");
         audio.srcObject = e.streams[0];
+        audio.controls = true;
         audio.autoplay = true;
+
+        document.body.appendChild(audio);
     };
 
     pc.onicecandidate = event => {
@@ -123,7 +170,6 @@ function createConnection(otherUser) {
 
     peerConnections[otherUser] = pc;
 
-    // CREATE OFFER
     pc.createOffer().then(offer => {
         pc.setLocalDescription(offer);
 
@@ -132,7 +178,6 @@ function createConnection(otherUser) {
         });
     });
 
-    // LISTEN ANSWER
     db.ref("calls/" + otherUser + "_" + myName).on("value", snap => {
         let data = snap.val();
         if (data && data.answer) {
@@ -140,7 +185,6 @@ function createConnection(otherUser) {
         }
     });
 
-    // LISTEN ICE
     db.ref("calls/" + otherUser + "_" + myName + "/candidates")
     .on("child_added", snap => {
         pc.addIceCandidate(new RTCIceCandidate(snap.val()));
@@ -166,9 +210,14 @@ db.ref("calls").on("child_added", snap => {
         });
 
         pc.ontrack = e => {
+            console.log("Audio received 🔊");
+
             let audio = document.createElement("audio");
             audio.srcObject = e.streams[0];
+            audio.controls = true;
             audio.autoplay = true;
+
+            document.body.appendChild(audio);
         };
 
         pc.onicecandidate = event => {

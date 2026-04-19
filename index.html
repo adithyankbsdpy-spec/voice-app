@@ -3,6 +3,7 @@
 <head>
     <title>Voice Chat App</title>
 
+    <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
@@ -13,44 +14,75 @@
             background: lightblue;
         }
 
-        button {
+        input, select {
             padding: 10px;
+            margin: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
             margin: 10px;
             background: #ff4b2b;
             color: white;
-            border-radius: 10px;
             border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #ff416c;
         }
 
         .mic-on {
             background: green !important;
+        }
+
+        ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        li {
+            background: white;
+            margin: 5px auto;
+            padding: 8px;
+            width: 220px;
+            border-radius: 8px;
         }
     </style>
 </head>
 
 <body>
 
-<h1>🎮 Voice Chat</h1>
+<h1>🎮 Voice Chat App</h1>
 
-<input id="name" placeholder="Enter name"><br>
+<input type="text" id="name" placeholder="Enter your name"><br>
+
 <select id="team">
     <option value="A">Team A</option>
     <option value="B">Team B</option>
 </select><br>
 
-<button onclick="enableMic()" id="micBtn">🎤 Enable Mic</button><br>
+<button id="micBtn" onclick="enableMic()">🎤 Enable Mic</button><br>
+
 <button onclick="join()">Join</button>
 
 <p id="status"></p>
 
+<h3>👥 Players</h3>
+<ul id="playerList"></ul>
+
 <script>
 
-// Firebase
+// 🔥 Firebase config (your same config)
 const firebaseConfig = {
   apiKey: "AIzaSyCl0Xr_85Gjf3Lfzbs1uvx8eIPiFLTWT3c",
   authDomain: "voice-app-65f97.firebaseapp.com",
   databaseURL: "https://voice-app-65f97-default-rtdb.firebaseio.com",
-  projectId: "voice-app-65f97"
+  projectId: "voice-app-65f97",
+  storageBucket: "voice-app-65f97.appspot.com",
+  messagingSenderId: "946078151090",
+  appId: "1:946078151090:web:895fa21d64e31b3261f4ab"
 };
 
 firebase.initializeApp(firebaseConfig);
@@ -58,94 +90,60 @@ const db = firebase.database();
 
 let localStream;
 let myName;
-let peer;
 
-// 🎤 MIC
+// 🎤 ENABLE MIC
 function enableMic() {
     navigator.mediaDevices.getUserMedia({ audio: true })
     .then(stream => {
         localStream = stream;
+
         document.getElementById("micBtn").innerText = "✅ Mic ON";
         document.getElementById("micBtn").classList.add("mic-on");
+
+        console.log("Mic working 🎤");
+    })
+    .catch(() => {
+        alert("Allow microphone!");
     });
 }
 
 // 🎮 JOIN
 function join() {
     myName = document.getElementById("name").value;
+    let team = document.getElementById("team").value;
 
-    if (!localStream) {
-        alert("Enable mic first");
+    if (myName === "") {
+        alert("Enter name!");
         return;
     }
 
-    document.getElementById("status").innerText = "Joined";
-
-    db.ref("users/" + myName).set(true);
-
-    db.ref("users").on("value", snap => {
-        snap.forEach(child => {
-            let other = child.key;
-
-            if (other !== myName && !peer) {
-                startCall(other);
-            }
-        });
-    });
-}
-
-// 🔗 START CALL
-function startCall(otherUser) {
-    peer = new RTCPeerConnection();
-
-    localStream.getTracks().forEach(track => {
-        peer.addTrack(track, localStream);
-    });
-
-    peer.ontrack = e => {
-        let audio = document.createElement("audio");
-        audio.srcObject = e.streams[0];
-        audio.autoplay = true;
-    };
-
-    peer.createOffer().then(o => {
-        peer.setLocalDescription(o);
-        db.ref("calls/" + myName).set({ offer: o });
-    });
-
-    db.ref("calls/" + otherUser).on("value", snap => {
-        let data = snap.val();
-        if (data && data.answer) {
-            peer.setRemoteDescription(new RTCSessionDescription(data.answer));
-        }
-    });
-}
-
-// 📡 ANSWER
-db.ref("calls").on("child_added", snap => {
-    let data = snap.val();
-    let caller = snap.key;
-
-    if (caller !== myName && data.offer) {
-        let pc = new RTCPeerConnection();
-
-        localStream.getTracks().forEach(track => {
-            pc.addTrack(track, localStream);
-        });
-
-        pc.ontrack = e => {
-            let audio = document.createElement("audio");
-            audio.srcObject = e.streams[0];
-            audio.autoplay = true;
-        };
-
-        pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-
-        pc.createAnswer().then(ans => {
-            pc.setLocalDescription(ans);
-            db.ref("calls/" + caller).update({ answer: ans });
-        });
+    if (!localStream) {
+        alert("Enable mic first!");
+        return;
     }
+
+    document.getElementById("status").innerText =
+        myName + " joined Team " + team;
+
+    // 🔥 SAVE TO FIREBASE (players)
+    db.ref("players/" + myName).set({
+        name: myName,
+        team: team
+    });
+}
+
+// 👥 LIVE PLAYER LIST
+db.ref("players").on("value", snapshot => {
+    let list = document.getElementById("playerList");
+    list.innerHTML = "";
+
+    snapshot.forEach(child => {
+        let player = child.val();
+
+        let li = document.createElement("li");
+        li.innerText = player.name + " (Team " + player.team + ")";
+        list.appendChild(li);
+    });
 });
 
 </script>

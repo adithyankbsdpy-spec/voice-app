@@ -67,7 +67,7 @@
 
 <script>
 
-// 🔥 Firebase
+// 🔥 Firebase config
 const firebaseConfig = {
   apiKey: "AIzaSyCl0Xr_85Gjf3Lfzbs1uvx8eIPiFLTWT3c",
   authDomain: "voice-app-65f97.firebaseapp.com",
@@ -78,7 +78,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-// 🔥 WebRTC STUN
+// 🔥 WebRTC config
 const servers = {
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
 };
@@ -87,7 +87,7 @@ let localStream;
 let myName;
 let peerConnections = {};
 
-// 🎤 MIC
+// 🎤 ENABLE MIC
 function enableMic() {
     navigator.mediaDevices.getUserMedia({ audio: true })
     .then(stream => {
@@ -121,7 +121,7 @@ function join() {
     listenPlayers();
 }
 
-// 👥 PLAYER LIST
+// 👥 LISTEN PLAYERS
 function listenPlayers() {
     db.ref("players").on("value", snap => {
         let list = document.getElementById("playerList");
@@ -155,8 +155,16 @@ function createConnection(otherUser) {
 
         let audio = document.createElement("audio");
         audio.srcObject = e.streams[0];
-        audio.controls = true;
+
         audio.autoplay = true;
+        audio.muted = false;
+        audio.volume = 1.0;
+
+        audio.play().then(() => {
+            console.log("Playing sound ✅");
+        }).catch(err => {
+            console.log("Autoplay blocked ❌", err);
+        });
 
         document.body.appendChild(audio);
     };
@@ -214,8 +222,16 @@ db.ref("calls").on("child_added", snap => {
 
             let audio = document.createElement("audio");
             audio.srcObject = e.streams[0];
-            audio.controls = true;
+
             audio.autoplay = true;
+            audio.muted = false;
+            audio.volume = 1.0;
+
+            audio.play().then(() => {
+                console.log("Playing sound ✅");
+            }).catch(err => {
+                console.log("Autoplay blocked ❌", err);
+            });
 
             document.body.appendChild(audio);
         };

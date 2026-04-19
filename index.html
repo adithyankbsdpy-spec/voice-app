@@ -1,9 +1,8 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Voice Chat App</title>
+    <title>Voice Chat</title>
 
-    <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
@@ -14,136 +13,186 @@
             background: lightblue;
         }
 
-        input, select {
-            padding: 10px;
-            margin: 10px;
-        }
-
         button {
-            padding: 10px 20px;
+            padding: 10px;
             margin: 10px;
             background: #ff4b2b;
             color: white;
-            border: none;
             border-radius: 10px;
-            cursor: pointer;
-        }
-
-        button:hover {
-            background: #ff416c;
+            border: none;
         }
 
         .mic-on {
             background: green !important;
-        }
-
-        ul {
-            list-style: none;
-            padding: 0;
-        }
-
-        li {
-            background: white;
-            margin: 5px auto;
-            padding: 8px;
-            width: 220px;
-            border-radius: 8px;
         }
     </style>
 </head>
 
 <body>
 
-<h1>🎮 Voice Chat App</h1>
+<h1>🎮 Voice Chat</h1>
 
-<input type="text" id="name" placeholder="Enter your name"><br>
-
+<input id="name" placeholder="Enter name"><br>
 <select id="team">
     <option value="A">Team A</option>
     <option value="B">Team B</option>
 </select><br>
 
 <button id="micBtn" onclick="enableMic()">🎤 Enable Mic</button><br>
-
 <button onclick="join()">Join</button>
 
 <p id="status"></p>
 
-<h3>👥 Players</h3>
-<ul id="playerList"></ul>
-
 <script>
 
-// 🔥 Firebase config (your same config)
+// 🔥 Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyCl0Xr_85Gjf3Lfzbs1uvx8eIPiFLTWT3c",
   authDomain: "voice-app-65f97.firebaseapp.com",
   databaseURL: "https://voice-app-65f97-default-rtdb.firebaseio.com",
-  projectId: "voice-app-65f97",
-  storageBucket: "voice-app-65f97.appspot.com",
-  messagingSenderId: "946078151090",
-  appId: "1:946078151090:web:895fa21d64e31b3261f4ab"
+  projectId: "voice-app-65f97"
 };
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
+// 🔥 WebRTC config (IMPORTANT)
+const servers = {
+    iceServers: [
+        { urls: "stun:stun.l.google.com:19302" }
+    ]
+};
+
 let localStream;
 let myName;
+let peerConnections = {};
 
-// 🎤 ENABLE MIC
+// 🎤 MIC
 function enableMic() {
     navigator.mediaDevices.getUserMedia({ audio: true })
     .then(stream => {
         localStream = stream;
-
         document.getElementById("micBtn").innerText = "✅ Mic ON";
         document.getElementById("micBtn").classList.add("mic-on");
-
-        console.log("Mic working 🎤");
-    })
-    .catch(() => {
-        alert("Allow microphone!");
     });
 }
 
 // 🎮 JOIN
 function join() {
     myName = document.getElementById("name").value;
-    let team = document.getElementById("team").value;
-
-    if (myName === "") {
-        alert("Enter name!");
-        return;
-    }
 
     if (!localStream) {
-        alert("Enable mic first!");
+        alert("Enable mic first");
         return;
     }
 
-    document.getElementById("status").innerText =
-        myName + " joined Team " + team;
+    db.ref("players/" + myName).set(true);
 
-    // 🔥 SAVE TO FIREBASE (players)
-    db.ref("players/" + myName).set({
-        name: myName,
-        team: team
+    db.ref("players").on("value", snap => {
+        snap.forEach(child => {
+            let other = child.key;
+
+            if (other !== myName && !peerConnections[other]) {
+                createConnection(other);
+            }
+        });
     });
 }
 
-// 👥 LIVE PLAYER LIST
-db.ref("players").on("value", snapshot => {
-    let list = document.getElementById("playerList");
-    list.innerHTML = "";
+// 🔗 CREATE CONNECTION
+function createConnection(otherUser) {
 
-    snapshot.forEach(child => {
-        let player = child.val();
+    let pc = new RTCPeerConnection(servers);
 
-        let li = document.createElement("li");
-        li.innerText = player.name + " (Team " + player.team + ")";
-        list.appendChild(li);
+    localStream.getTracks().forEach(track => {
+        pc.addTrack(track, localStream);
     });
+
+    pc.ontrack = e => {
+        let audio = document.createElement("audio");
+        audio.srcObject = e.streams[0];
+        audio.autoplay = true;
+    };
+
+    pc.onicecandidate = event => {
+        if (event.candidate) {
+            db.ref("calls/" + myName + "_" + otherUser + "/candidates")
+            .push(event.candidate);
+        }
+    };
+
+    peerConnections[otherUser] = pc;
+
+    // CREATE OFFER
+    pc.createOffer().then(offer => {
+        pc.setLocalDescription(offer);
+
+        db.ref("calls/" + myName + "_" + otherUser).set({
+            offer: offer
+        });
+    });
+
+    // LISTEN ANSWER
+    db.ref("calls/" + otherUser + "_" + myName).on("value", snap => {
+        let data = snap.val();
+        if (data && data.answer) {
+            pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        }
+    });
+
+    // LISTEN ICE
+    db.ref("calls/" + otherUser + "_" + myName + "/candidates")
+    .on("child_added", snap => {
+        pc.addIceCandidate(new RTCIceCandidate(snap.val()));
+    });
+}
+
+// 📡 ANSWER SIDE
+db.ref("calls").on("child_added", snap => {
+
+    let key = snap.key;
+    let data = snap.val();
+
+    if (!myName) return;
+
+    if (key.includes("_" + myName) && data.offer) {
+
+        let caller = key.split("_")[0];
+
+        let pc = new RTCPeerConnection(servers);
+
+        localStream.getTracks().forEach(track => {
+            pc.addTrack(track, localStream);
+        });
+
+        pc.ontrack = e => {
+            let audio = document.createElement("audio");
+            audio.srcObject = e.streams[0];
+            audio.autoplay = true;
+        };
+
+        pc.onicecandidate = event => {
+            if (event.candidate) {
+                db.ref("calls/" + key + "/candidates")
+                .push(event.candidate);
+            }
+        };
+
+        pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+
+        pc.createAnswer().then(answer => {
+            pc.setLocalDescription(answer);
+
+            db.ref("calls/" + key).update({
+                answer: answer
+            });
+        });
+
+        db.ref("calls/" + key + "/candidates")
+        .on("child_added", snap => {
+            pc.addIceCandidate(new RTCIceCandidate(snap.val()));
+        });
+    }
 });
 
 </script>

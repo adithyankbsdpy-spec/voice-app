@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Voice Chat App</title>
+
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+    <style>
+        body {
+            text-align: center;
+            font-family: Arial;
+            background: lightblue;
+        }
+
+        button {
+            padding: 10px;
+            margin: 10px;
+            background: #ff4b2b;
+            color: white;
+            border-radius: 10px;
+            border: none;
+        }
+
+        .mic-on {
+            background: green !important;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>🎮 Voice Chat</h1>
+
+<input id="name" placeholder="Enter name"><br>
+<select id="team">
+    <option value="A">Team A</option>
+    <option value="B">Team B</option>
+</select><br>
+
+<button onclick="enableMic()" id="micBtn">🎤 Enable Mic</button><br>
+<button onclick="join()">Join</button>
+
+<p id="status"></p>
+
+<script>
+
+// Firebase
+const firebaseConfig = {
+  apiKey: "AIzaSyCl0Xr_85Gjf3Lfzbs1uvx8eIPiFLTWT3c",
+  authDomain: "voice-app-65f97.firebaseapp.com",
+  databaseURL: "https://voice-app-65f97-default-rtdb.firebaseio.com",
+  projectId: "voice-app-65f97"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+let localStream;
+let myName;
+let peer;
+
+// 🎤 MIC
+function enableMic() {
+    navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(stream => {
+        localStream = stream;
+        document.getElementById("micBtn").innerText = "✅ Mic ON";
+        document.getElementById("micBtn").classList.add("mic-on");
+    });
+}
+
+// 🎮 JOIN
+function join() {
+    myName = document.getElementById("name").value;
+
+    if (!localStream) {
+        alert("Enable mic first");
+        return;
+    }
+
+    document.getElementById("status").innerText = "Joined";
+
+    db.ref("users/" + myName).set(true);
+
+    db.ref("users").on("value", snap => {
+        snap.forEach(child => {
+            let other = child.key;
+
+            if (other !== myName && !peer) {
+                startCall(other);
+            }
+        });
+    });
+}
+
+// 🔗 START CALL
+function startCall(otherUser) {
+    peer = new RTCPeerConnection();
+
+    localStream.getTracks().forEach(track => {
+        peer.addTrack(track, localStream);
+    });
+
+    peer.ontrack = e => {
+        let audio = document.createElement("audio");
+        audio.srcObject = e.streams[0];
+        audio.autoplay = true;
+    };
+
+    peer.createOffer().then(o => {
+        peer.setLocalDescription(o);
+        db.ref("calls/" + myName).set({ offer: o });
+    });
+
+    db.ref("calls/" + otherUser).on("value", snap => {
+        let data = snap.val();
+        if (data && data.answer) {
+            peer.setRemoteDescription(new RTCSessionDescription(data.answer));
+        }
+    });
+}
+
+// 📡 ANSWER
+db.ref("calls").on("child_added", snap => {
+    let data = snap.val();
+    let caller = snap.key;
+
+    if (caller !== myName && data.offer) {
+        let pc = new RTCPeerConnection();
+
+        localStream.getTracks().forEach(track => {
+            pc.addTrack(track, localStream);
+        });
+
+        pc.ontrack = e => {
+            let audio = document.createElement("audio");
+            audio.srcObject = e.streams[0];
+            audio.autoplay = true;
+        };
+
+        pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+
+        pc.createAnswer().then(ans => {
+            pc.setLocalDescription(ans);
+            db.ref("calls/" + caller).update({ answer: ans });
+        });
+    }
+});
+
+</script>
+
+</body>
+</html>

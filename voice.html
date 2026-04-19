@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Voice Chat App</title>
+
+    <style>
+        body {
+            text-align: center;
+            font-family: Arial;
+            background: lightblue;
+        }
+
+        input, select {
+            padding: 10px;
+            margin: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            background: #ff4b2b;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #ff416c;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>🎮 Voice Chat App</h1>
+
+<input type="text" id="name" placeholder="Enter your name"><br>
+
+<select id="team">
+    <option value="A">Team A</option>
+    <option value="B">Team B</option>
+</select><br>
+
+<button onclick="join()">Join</button>
+
+<br><br>
+
+<button onclick="switchAll()">All Chat</button>
+<button onclick="switchTeam()">Team Chat</button>
+
+<p id="status"></p>
+
+<script>
+
+let currentMode = "all";
+
+function join() {
+    let name = document.getElementById("name").value;
+    let team = document.getElementById("team").value;
+
+    if (name === "") {
+        alert("Enter name!");
+        return;
+    }
+
+    document.getElementById("status").innerText =
+        name + " joined Team " + team + " (All Chat)";
+
+    // 🎤 Request mic access
+    navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(stream => {
+        console.log("Mic connected");
+    })
+    .catch(err => {
+        alert("Allow microphone!");
+    });
+}
+
+function switchAll() {
+    currentMode = "all";
+    document.getElementById("status").innerText = "Switched to ALL CHAT";
+}
+
+function switchTeam() {
+    currentMode = "team";
+    document.getElementById("status").innerText = "Switched to TEAM CHAT";
+}
+
+</script>
+
+</body>
+</html>
